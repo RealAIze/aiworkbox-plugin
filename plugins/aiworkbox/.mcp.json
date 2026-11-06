@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "aiworkbox": {
+      "type": "http",
+      "url": "https://mcp.ai-workbox.com/mcp"
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "aiworkbox",
+  "owner": { "name": "RealAIze" },
+  "plugins": [
+    {
+      "name": "aiworkbox",
+      "source": "./plugins/aiworkbox",
+      "description": "AI Workbox の接続と、会社の管理者が書いたルール・メモリ・止める操作・答えのチェック"
+    }
+  ]
+}

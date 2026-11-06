@@ -1,0 +1,63 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "plugin:aiworkbox:aiworkbox",
+            "tool": "harness",
+            "input": {
+              "event": "UserPromptSubmit",
+              "client": "claude-code",
+              "session_id": "${session_id}",
+              "prompt": "${prompt}",
+              "cwd": "${cwd}"
+            },
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "plugin:aiworkbox:aiworkbox",
+            "tool": "harness",
+            "input": {
+              "event": "PreToolUse",
+              "client": "claude-code",
+              "session_id": "${session_id}",
+              "tool_name": "${tool_name}",
+              "command": "${tool_input.command}",
+              "cwd": "${cwd}"
+            },
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "plugin:aiworkbox:aiworkbox",
+            "tool": "harness",
+            "input": {
+              "event": "Stop",
+              "client": "claude-code",
+              "session_id": "${session_id}",
+              "last_assistant_message": "${last_assistant_message}",
+              "stop_hook_active": "${stop_hook_active}"
+            },
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}
