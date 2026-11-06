@@ -2,7 +2,7 @@
   "mcpServers": {
     "aiworkbox": {
       "type": "http",
-      "url": "https://mcp.ai-workbox.com/mcp"
+      "url": "https://mcp-dev.mcpaigate.com/mcp"
     }
   }
 }
