@@ -1,0 +1,168 @@
+name: check
+
+# Checks that the plugin stays what the employees trusted: the fixed set of files, hooks that only
+# call AI Workbox's `harness` tool (never a command on the employee's PC), one MCP connection whose
+# URL is the one for this branch, and marketplaces whose only source is ./plugins/aiworkbox.
+# Claude Code adds a plugin's bin/ to the PATH of Bash, so any file outside the list fails.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - dev
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the plugin
+        env:
+          TARGET_BRANCH: ${{ github.base_ref || github.ref_name }}
+        run: |
+          node --input-type=module <<'SCRIPT'
+          import { execFileSync } from "node:child_process";
+          import { readFileSync } from "node:fs";
+
+          const errors = [];
+          const fail = (message) => errors.push(message);
+          const read = (path) => JSON.parse(readFileSync(path, "utf8"));
+          const keysAre = (object, allowed, where) => {
+            if (object === null || typeof object !== "object" || Array.isArray(object)) {
+              fail(`${where} is not an object`);
+              return false;
+            }
+            for (const key of Object.keys(object)) {
+              if (!allowed.includes(key)) fail(`${where} has an unexpected key: ${key}`);
+            }
+            return true;
+          };
+
+          // 1. The files.
+          const allowedFiles = [
+            ".agents/plugins/marketplace.json",
+            ".claude-plugin/marketplace.json",
+            ".github/workflows/check.yml",
+            "README.md",
+            "plugins/aiworkbox/.claude-plugin/plugin.json",
+            "plugins/aiworkbox/.codex-plugin/plugin.json",
+            "plugins/aiworkbox/.mcp.json",
+            "plugins/aiworkbox/hooks/codex-hooks.json",
+            "plugins/aiworkbox/hooks/hooks.json",
+          ];
+          const files = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" })
+            .split("\0")
+            .filter(Boolean);
+          for (const file of files) {
+            if (!allowedFiles.includes(file)) fail(`a file outside the list: ${file}`);
+          }
+          for (const file of allowedFiles) {
+            if (!files.includes(file)) fail(`a listed file is missing: ${file}`);
+          }
+          const modes = execFileSync("git", ["ls-files", "-s"], { encoding: "utf8" });
+          for (const line of modes.split("\n").filter(Boolean)) {
+            if (!line.startsWith("100644 ")) fail(`not a plain file: ${line}`);
+          }
+
+          // 2. The hooks call only the harness tool of the AI Workbox connection.
+          const hookFiles = {
+            "plugins/aiworkbox/hooks/hooks.json": "plugin:aiworkbox:aiworkbox",
+            "plugins/aiworkbox/hooks/codex-hooks.json": "aiworkbox",
+          };
+          for (const [path, server] of Object.entries(hookFiles)) {
+            const config = read(path);
+            if (!keysAre(config, ["hooks"], path)) continue;
+            if (!keysAre(config.hooks, ["UserPromptSubmit", "PreToolUse", "Stop"], `${path} hooks`)) continue;
+            let count = 0;
+            for (const [event, groups] of Object.entries(config.hooks)) {
+              if (!Array.isArray(groups)) {
+                fail(`${path} ${event} is not a list`);
+                continue;
+              }
+              for (const group of groups) {
+                if (!keysAre(group, ["matcher", "hooks"], `${path} ${event}`)) continue;
+                if (!Array.isArray(group.hooks)) {
+                  fail(`${path} ${event} hooks is not a list`);
+                  continue;
+                }
+                for (const hook of group.hooks) {
+                  count += 1;
+                  if (!keysAre(hook, ["type", "server", "tool", "input", "timeout"], `${path} ${event} hook`)) continue;
+                  if (hook.type !== "mcp_tool") fail(`${path} ${event}: type is ${hook.type}, not mcp_tool`);
+                  if (hook.server !== server) fail(`${path} ${event}: server is ${hook.server}, not ${server}`);
+                  if (hook.tool !== "harness") fail(`${path} ${event}: tool is ${hook.tool}, not harness`);
+                }
+              }
+            }
+            if (count === 0) fail(`${path} has no hooks`);
+          }
+
+          // The manifests name no other hooks, connections, commands, agents or skills.
+          const claudePlugin = read("plugins/aiworkbox/.claude-plugin/plugin.json");
+          keysAre(claudePlugin, ["name", "version", "description"], "Claude Code plugin.json");
+          const codexPlugin = read("plugins/aiworkbox/.codex-plugin/plugin.json");
+          keysAre(codexPlugin, ["name", "version", "description", "hooks"], "Codex plugin.json");
+          if (codexPlugin.hooks !== "./hooks/codex-hooks.json") fail("Codex plugin.json hooks is not ./hooks/codex-hooks.json");
+          for (const [where, manifest] of [["Claude Code plugin.json", claudePlugin], ["Codex plugin.json", codexPlugin]]) {
+            if (manifest.name !== "aiworkbox") fail(`${where} name is not aiworkbox`);
+          }
+
+          // 3. One connection, with this branch's URL.
+          const urls = {
+            main: "https://mcp.ai-workbox.com/mcp",
+            dev: "https://mcp-dev.mcpaigate.com/mcp",
+          };
+          const branch = process.env.TARGET_BRANCH;
+          const mcp = read("plugins/aiworkbox/.mcp.json");
+          if (keysAre(mcp, ["mcpServers"], ".mcp.json") && keysAre(mcp.mcpServers, ["aiworkbox"], ".mcp.json mcpServers")) {
+            const server = mcp.mcpServers.aiworkbox;
+            if (keysAre(server, ["type", "url"], ".mcp.json aiworkbox")) {
+              if (server.type !== "http") fail(".mcp.json aiworkbox type is not http");
+              if (!(branch in urls)) fail(`the branch ${branch} has no URL; open the pull request against main or dev`);
+              else if (server.url !== urls[branch]) fail(`.mcp.json aiworkbox url is ${server.url}, not ${urls[branch]} for ${branch}`);
+            }
+          }
+
+          // 4. The marketplaces point only at ./plugins/aiworkbox.
+          const claudeMarket = read(".claude-plugin/marketplace.json");
+          if (keysAre(claudeMarket, ["name", "owner", "plugins"], "Claude Code marketplace.json")) {
+            if (claudeMarket.name !== "aiworkbox") fail("Claude Code marketplace name is not aiworkbox");
+            if (!Array.isArray(claudeMarket.plugins) || claudeMarket.plugins.length !== 1) fail("Claude Code marketplace does not list exactly one plugin");
+            for (const plugin of claudeMarket.plugins ?? []) {
+              keysAre(plugin, ["name", "source", "description"], "Claude Code marketplace plugin");
+              if (plugin.name !== "aiworkbox") fail("Claude Code marketplace plugin name is not aiworkbox");
+              if (plugin.source !== "./plugins/aiworkbox") fail("Claude Code marketplace source is not ./plugins/aiworkbox");
+            }
+          }
+          const codexMarket = read(".agents/plugins/marketplace.json");
+          if (keysAre(codexMarket, ["name", "interface", "plugins"], "Codex marketplace.json")) {
+            if (codexMarket.name !== "aiworkbox") fail("Codex marketplace name is not aiworkbox");
+            if (!Array.isArray(codexMarket.plugins) || codexMarket.plugins.length !== 1) fail("Codex marketplace does not list exactly one plugin");
+            for (const plugin of codexMarket.plugins ?? []) {
+              keysAre(plugin, ["name", "source", "policy", "category"], "Codex marketplace plugin");
+              if (plugin.name !== "aiworkbox") fail("Codex marketplace plugin name is not aiworkbox");
+              if (keysAre(plugin.source, ["source", "path"], "Codex marketplace source")) {
+                if (plugin.source.source !== "local" || plugin.source.path !== "./plugins/aiworkbox") {
+                  fail("Codex marketplace source is not local ./plugins/aiworkbox");
+                }
+              }
+            }
+          }
+
+          if (errors.length > 0) {
+            for (const message of errors) console.log(`::error::${message}`);
+            process.exit(1);
+          }
+          console.log(`The plugin is as expected for ${branch} (${files.length} files).`);
+          SCRIPT
