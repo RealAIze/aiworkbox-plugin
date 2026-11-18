@@ -29,6 +29,10 @@ codex mcp login aiworkbox --scopes skills:read,skills:run
 
 初めて `codex` を開いた時に「Hooks need review」と出たら、「3 hooks are new or changed.」と出ていることを確かめて「2. Trust all and continue」を選んでください。3 以外の数が出ている時と、2回目に出た時は「3」を選んで、管理者に伝えてください。
 
+## スキルの一覧を出す
+
+プラグインを入れると、Claude Code では `/aiworkbox:ai-workbox`、Codex では `$aiworkbox:ai-workbox` と打つだけで、会社で使える AI Workbox のスキルが表で出ます。スキルごとのコマンド（`/mcp__aiworkbox__<スキルの名前>` など）も今までどおり使えます。
+
 ## 中身
 
 | ファイル | 役割 |
@@ -38,6 +42,7 @@ codex mcp login aiworkbox --scopes skills:read,skills:run
 | `plugins/aiworkbox/.mcp.json` | AI Workbox の MCP の住所（Claude Code と Codex が読む） |
 | `plugins/aiworkbox/hooks/hooks.json` | Claude Code の hooks。質問・コマンド・答えの前に AI Workbox の `harness` を呼ぶ |
 | `plugins/aiworkbox/hooks/codex-hooks.json` | Codex の hooks（`.codex-plugin/plugin.json` から読む） |
+| `plugins/aiworkbox/skills/ai-workbox/SKILL.md` | 入口のスキル。Claude Code は `/aiworkbox:ai-workbox`、Codex は `$aiworkbox:ai-workbox` で、AI Workbox のスキル一覧を出す |
 | `.github/workflows/check.yml` | ファイルの一覧・hooks の種類・接続先・取り込み元の検査。main と dev の必須の検査 |
 
 `main` は本番（`https://mcp.ai-workbox.com/mcp`）、`dev` は開発環境を指します。
