@@ -1,6 +1,7 @@
 name: check
 
-# Checks that the plugin stays what the employees trusted: the fixed set of files, hooks that only
+# Checks that the plugin stays what the employees trusted: the fixed set of files, one entry skill that only
+# reads the skill list, hooks that only
 # call AI Workbox's `harness` tool (never a command on the employee's PC), one MCP connection whose
 # URL is the one for this branch, and marketplaces whose only source is ./plugins/aiworkbox.
 # Claude Code adds a plugin's bin/ to the PATH of Bash, so any file outside the list fails.
@@ -60,6 +61,7 @@ jobs:
             "plugins/aiworkbox/.mcp.json",
             "plugins/aiworkbox/hooks/codex-hooks.json",
             "plugins/aiworkbox/hooks/hooks.json",
+            "plugins/aiworkbox/skills/ai-workbox/SKILL.md",
           ];
           const files = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" })
             .split("\0")
@@ -112,8 +114,27 @@ jobs:
           const claudePlugin = read("plugins/aiworkbox/.claude-plugin/plugin.json");
           keysAre(claudePlugin, ["name", "version", "description"], "Claude Code plugin.json");
           const codexPlugin = read("plugins/aiworkbox/.codex-plugin/plugin.json");
-          keysAre(codexPlugin, ["name", "version", "description", "hooks"], "Codex plugin.json");
+          keysAre(codexPlugin, ["name", "version", "description", "hooks", "skills"], "Codex plugin.json");
           if (codexPlugin.hooks !== "./hooks/codex-hooks.json") fail("Codex plugin.json hooks is not ./hooks/codex-hooks.json");
+          if (codexPlugin.skills !== "./skills/") fail("Codex plugin.json skills is not ./skills/");
+
+          // The entry skill only lets the AI read the skill list and a skill of the AI Workbox connection.
+          const skill = readFileSync("plugins/aiworkbox/skills/ai-workbox/SKILL.md", "utf8");
+          const front = skill.match(/^---\n([\s\S]*?)\n---\n/);
+          if (!front) fail("SKILL.md has no front matter");
+          else {
+            const keys = front[1].split("\n").map((line) => line.split(":")[0]);
+            for (const key of keys) {
+              if (!["name", "description", "allowed-tools"].includes(key)) fail(`SKILL.md has an unexpected key: ${key}`);
+            }
+            const tools = (front[1].match(/^allowed-tools:(.*)$/m)?.[1] ?? "").trim().split(/\s+/).filter(Boolean);
+            for (const tool of tools) {
+              if (!["mcp__plugin_aiworkbox_aiworkbox__list_skills", "mcp__plugin_aiworkbox_aiworkbox__get_skill"].includes(tool)) {
+                fail(`SKILL.md allows a tool outside the list: ${tool}`);
+              }
+            }
+            if (!/^name: ai-workbox$/m.test(front[1])) fail("SKILL.md name is not ai-workbox");
+          }
           for (const [where, manifest] of [["Claude Code plugin.json", claudePlugin], ["Codex plugin.json", codexPlugin]]) {
             if (manifest.name !== "aiworkbox") fail(`${where} name is not aiworkbox`);
           }
